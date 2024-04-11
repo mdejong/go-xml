@@ -2,6 +2,7 @@ package xmltree_test
 
 import (
 	"encoding/xml"
+	"fmt"
 	"log"
 	"testing"
 
@@ -123,6 +124,63 @@ func TestXMLParseEscapedValueStd(t *testing.T) {
 	}
 }
 
+// golang xml.Unmarshal() will automatically unencode XML encoded data inside a node
+
+func TestXMLParseEscapedDoubleQuoteParent(t *testing.T) {
+	type ParentExample struct {
+		StringLiteral string `xml:"stringliteral"`
+	}
+
+	//xmlBytes := []byte(`<parent><stringliteral>"</stringliteral></parent>`)
+	xmlBytes := []byte(`<parent><stringliteral>&quot;</stringliteral></parent>`)
+
+	fmt.Println("xmlBytes:" + string(xmlBytes))
+
+	obj := ParentExample{}
+	err := xml.Unmarshal(xmlBytes, &obj)
+	if err != nil {
+		panic(err)
+	}
+
+	strContents := obj.StringLiteral
+	fmt.Printf("obj XMLBody [%s]\n", strContents)
+
+	{
+		have := strContents
+		want := `"`
+
+		if have != want {
+			t.Fatalf("!Match : want : have :\n-----\n%v\n-----\n%v\n-----", want, have)
+		}
+	}
+}
+
+// xmltree library should convert XML escapes as a result of Parse()
+
+func TestXMLParseEscapedDoubleQuoteParentWithXMLTree(t *testing.T) {
+	//xmlBytes := []byte(`<parent><stringliteral>"</stringliteral></parent>`)
+	xmlBytes := []byte(`<parent><stringliteral>&quot;</stringliteral></parent>`)
+
+	fmt.Println("xmlBytes:" + string(xmlBytes))
+
+	rootNode, err := xmltree.Parse(xmlBytes)
+	if err != nil {
+		panic(err)
+	}
+
+	strContents := string(rootNode.Children[0].Content)
+	fmt.Printf("obj XMLBody [%s]\n", strContents)
+
+	{
+		have := strContents
+		want := `"`
+
+		if have != want {
+			t.Fatalf("!Match : want : have :\n-----\n%v\n-----\n%v\n-----", want, have)
+		}
+	}
+}
+
 // Parse and then format with xmltree module
 
 func TestXMLParseEscapedAttributeWithXMLTree(t *testing.T) {
@@ -158,11 +216,6 @@ func TestXMLParseEscapedAttributeWithXMLTree(t *testing.T) {
 func TestXMLParseEscapedValueXMLTree(t *testing.T) {
 	var err error
 
-	type Module struct {
-		XMLName xml.Name `xml:"module"`
-		Value   string   `xml:",chardata"`
-	}
-
 	xmlBytes := []byte(`<module>&lt;&gt;</module>`)
 
 	// []byte -> Module object
@@ -171,18 +224,35 @@ func TestXMLParseEscapedValueXMLTree(t *testing.T) {
 		log.Fatal(err)
 	}
 
+	fmt.Printf("rootNode %v\n", rootNode)
+
+	// check decoded result
+
+	{
+		have := string(rootNode.Content)
+		want := `<>`
+
+		if have != want {
+			t.Fatalf("!Match (decoded) : want : have :\n-----\n%v\n-----\n%v\n-----", want, have)
+		}
+	}
+
+	fmt.Printf("rootNode %v\n", rootNode)
+
 	xmlOutBytes := xmltree.MarshalIndent(rootNode, "", "  ")
+
+	fmt.Printf("rootNode %v\n", rootNode)
+	fmt.Printf("xmlOutBytes %v\n", string(xmlOutBytes))
 
 	{
 		have := string(xmlOutBytes)
 		want := `<module>&lt;&gt;</module>` + "\n"
 
 		if have != want {
-			t.Fatalf("!Match : want : have :\n-----\n%v\n-----\n%v\n-----", want, have)
+			t.Fatalf("!Match (encoded) : want : have :\n-----\n%v\n-----\n%v\n-----", want, have)
 		}
 	}
 }
-
 
 // Parse/Format with xmltree methods, does not modifiy contents of node
 
@@ -211,7 +281,7 @@ func TestXMLParseEscapedAmpersandQuotedAttributeWithXMLTreeReadOnly(t *testing.T
 	// Invoke xmltree.MarshalIndent()
 
 	xmlOutBytes := xmltree.MarshalIndent(rootNode, "", "  ")
-	// Ignore xmlOutBytes
+	// Ignore xmlOutBytes to avoid compiler error
 	xmlOutBytes = xmlOutBytes
 
 	// Verify that MarshalIndent() does not modify the contents of rootNode
@@ -225,4 +295,3 @@ func TestXMLParseEscapedAmpersandQuotedAttributeWithXMLTreeReadOnly(t *testing.T
 		}
 	}
 }
-

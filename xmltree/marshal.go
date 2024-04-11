@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/xml"
 	"io"
-	"text/template"
 	"strings"
+	"text/template"
 )
 
 // NOTE(droyo) As of go1.5.1, the encoding/xml package does not resolve
@@ -22,6 +22,48 @@ var tagTmpl = template.Must(template.New("Marshal XML tags").Parse(
 
 	{{define "end" -}}
 	</{{.Prefix .Name}}>{{end}}`))
+
+type vContentMapping struct {
+	Decoded string
+	Encoded string
+}
+
+var vContentMappings = []vContentMapping{
+	{Decoded: `&`, Encoded: `&amp;`},
+	{Decoded: `<`, Encoded: `&lt;`},
+	{Decoded: `>`, Encoded: `&gt;`},
+	{Decoded: `"`, Encoded: `&quot;`},
+}
+
+// XML encode any special characters in a plain string.
+// For example & will be encoded as &amp;
+
+func xmlEncodeString(strToEncode string) (string, error) {
+	strEncoded := strToEncode
+
+	for _, mapping := range vContentMappings {
+		strEncoded = strings.Replace(strEncoded, mapping.Decoded, mapping.Encoded, -1)
+	}
+
+	//fmt.Printf("xmlEncodeString([%s]) -> [%s]\n", strToEncode, strEncoded)
+
+	return strEncoded, nil
+}
+
+// XML decode escaped characters in a string.
+// For example &quot; will be encoded as "
+
+func xmlDecodeString(strToDecode string) (string, error) {
+	strDecoded := strToDecode
+
+	for _, mapping := range vContentMappings {
+		strDecoded = strings.Replace(strDecoded, mapping.Encoded, mapping.Decoded, -1)
+	}
+
+	//fmt.Printf("xmlDecodeString([%s]) -> [%s]\n", strToDecode, strDecoded)
+
+	return strDecoded, nil
+}
 
 // Marshal produces the XML encoding of an Element as a self-contained
 // document. The xmltree package may adjust the declarations of XML
@@ -97,7 +139,11 @@ func (e *encoder) encode(el, parent *Element, visited map[*Element]struct{}) err
 	}
 	if len(el.Children) == 0 {
 		if len(el.Content) > 0 {
-			e.w.Write(el.Content)
+			mStr, mErr := xmlEncodeString(string(el.Content))
+			if mErr != nil {
+				return mErr
+			}
+			e.w.Write([]byte(mStr))
 		} else {
 			return nil
 		}
@@ -145,11 +191,18 @@ func (e *encoder) encodeOpenTag(el *Element, scope Scope, depth int) error {
 	elCopy.StartElement = xml.StartElement{}
 	elCopy.StartElement.Name = el.StartElement.Name
 	elCopy.StartElement.Attr = make([]xml.Attr, len(el.StartElement.Attr))
-	for i:=0; i < len(el.StartElement.Attr); i++ {
+	for i := 0; i < len(el.StartElement.Attr); i++ {
 		elCopy.StartElement.Attr[i] = el.StartElement.Attr[i]
 	}
 	elCopy.Scope = el.Scope
-	elCopy.Content = el.Content
+	// Escape node contents
+	{
+		mStr, mErr := xmlEncodeString(string(el.Content))
+		if mErr != nil {
+			return mErr
+		}
+		elCopy.Content = []byte(mStr)
+	}
 	elCopy.Children = el.Children
 
 	var tag = struct {
@@ -159,16 +212,12 @@ func (e *encoder) encodeOpenTag(el *Element, scope Scope, depth int) error {
 
 	// XML escape attribute strings held in copy
 	attrs := tag.StartElement.Attr
-	for i := 0; i < len(attrs) ; i++ {
+	for i := 0; i < len(attrs); i++ {
 		attrStr := attrs[i].Value
-		mBytes, mErr := xml.Marshal(attrStr)
+		mStr, mErr := xmlEncodeString(attrStr)
 		if mErr != nil {
 			return mErr
 		}
-		mStr := string(mBytes)
-		// <string>xyz</string> -> xyz
-		mStr = strings.Replace(mStr, "<string>", "", 1)
-		mStr = strings.Replace(mStr, "</string>", "", 1)
 		attrs[i].Value = mStr
 	}
 	tag.StartElement.Attr = attrs
